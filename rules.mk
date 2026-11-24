@@ -242,8 +242,8 @@ export PKG_CONFIG
 HOSTCC:=gcc
 HOSTCXX:=g++
 HOST_CPPFLAGS:=-I$(STAGING_DIR_HOST)/include $(if $(IS_PACKAGE_BUILD),-I$(STAGING_DIR_HOSTPKG)/include -I$(STAGING_DIR)/host/include)
-HOST_CFLAGS:=-O2 $(HOST_CPPFLAGS)
-HOST_LDFLAGS:=-L$(STAGING_DIR_HOST)/lib $(if $(IS_PACKAGE_BUILD),-L$(STAGING_DIR_HOSTPKG)/lib -L$(STAGING_DIR)/host/lib)
+HOST_CFLAGS:=-O2 -Wno-error=incompatible-function-pointer-types -Wno-error=int-conversion -Wno-error=implicit-function-declaration $(HOST_CPPFLAGS)
+HOST_LDFLAGS:=-Wl,-w -L$(STAGING_DIR_HOST)/lib $(if $(IS_PACKAGE_BUILD),-L$(STAGING_DIR_HOSTPKG)/lib -L$(STAGING_DIR)/host/lib)
 
 BUILD_KEY=$(TOPDIR)/key-build
 

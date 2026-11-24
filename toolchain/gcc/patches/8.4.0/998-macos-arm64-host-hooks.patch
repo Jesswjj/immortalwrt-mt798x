@@ -1,0 +1,33 @@
+--- a/gcc/config.host
++++ b/gcc/config.host
+@@ -255,7 +255,7 @@ case ${host} in
+     host_extra_gcc_objs="${host_extra_gcc_objs} driver-mingw32.o"
+     host_lto_plugin_soname=liblto_plugin-0.dll
+     ;;
+-  i[34567]86-*-darwin* | x86_64-*-darwin*)
++  i[34567]86-*-darwin* | x86_64-*-darwin* | aarch64-*-darwin* | arm*-apple-darwin* | arm64-*-darwin*)
+     out_host_hook_obj="${out_host_hook_obj} host-i386-darwin.o"
+     host_xmake_file="${host_xmake_file} i386/x-darwin"
+     ;;
+--- a/gcc/config/aarch64/aarch64.h
++++ b/gcc/config/aarch64/aarch64.h
+@@ -1000,7 +1000,7 @@ extern const char *aarch64_rewrite_mcpu (int argc, const char **argv);
+ #define MCPU_TO_MARCH_SPEC_FUNCTIONS \
+   { "rewrite_mcpu", aarch64_rewrite_mcpu },
+ 
+-#if defined(__aarch64__)
++#if defined(__aarch64__) && !defined(__APPLE__)
+ extern const char *host_detect_local_cpu (int argc, const char **argv);
+ #define HAVE_LOCAL_CPU_DETECT
+ # define EXTRA_SPEC_FUNCTIONS						\
+--- a/gcc/config/host-darwin.c
++++ b/gcc/config/host-darwin.c
+@@ -22,7 +22,7 @@
+ #include "config/host-darwin.h"
+ 
+ /* Yes, this is really supposed to work.  */
+-static char pch_address_space[1024*1024*1024] __attribute__((aligned (4096)));
++static char pch_address_space[1024*1024*1024] __attribute__((aligned (16384)));
+ 
+ /* Return the address of the PCH address space, if the PCH will fit in it.  */
+ 
