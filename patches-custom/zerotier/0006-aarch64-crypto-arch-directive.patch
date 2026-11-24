@@ -1,0 +1,13 @@
+--- a/node/AES_armcrypto.cpp
++++ b/node/AES_armcrypto.cpp
+@@ -16,6 +16,10 @@
+ 
+ #ifdef ZT_AES_NEON
+ 
++#ifdef __aarch64__
++__asm__(".arch armv8-a+crypto");
++#endif
++
+ namespace ZeroTier {
+ 
+ namespace {
