@@ -42,7 +42,11 @@ fast_classifier)
 	;;
 esac
 
-set_default tcpcca cubic
+if grep -qw "bbr" /proc/sys/net/ipv4/tcp_available_congestion_control 2>/dev/null; then
+	set_default tcpcca bbr
+else
+	set_default tcpcca cubic
+fi
 
 uci -q commit "turboacc"
 

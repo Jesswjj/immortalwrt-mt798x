@@ -1,0 +1,4 @@
+# Quiet MediaTek mt_wifi verbose debug log spam (L1 kern.err)
+iwpriv ra0 set Debug=0 2>/dev/null || true
+iwpriv rax0 set Debug=0 2>/dev/null || true
+exit 0

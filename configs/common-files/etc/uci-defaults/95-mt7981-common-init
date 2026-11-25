@@ -1,0 +1,97 @@
+#!/bin/sh
+# ==============================================================================
+# 95-mt7981-common-init: Hardware-Adaptive Default Initialization (Public Safe)
+# Automatically configures ABT ASR3000 (192.168.2.1) & Qihoo 360T7 (192.168.6.1)
+# in Standard Router Mode (WAN -> Optical Modem, independent LAN subnet + HNAT).
+# ==============================================================================
+
+BOARD="$(cat /tmp/sysinfo/board_name 2>/dev/null || echo 'unknown')"
+case "$BOARD" in
+    abt,asr3000)
+        HOSTNAME="ASR3000"
+        DEFAULT_IP="192.168.2.1"
+        SSID_PREFIX="ASR3000"
+        ;;
+    qihoo,360t7*)
+        HOSTNAME="360T7"
+        DEFAULT_IP="192.168.6.1"
+        SSID_PREFIX="360T7"
+        ;;
+    *)
+        HOSTNAME="ImmortalWrt-MT7981"
+        DEFAULT_IP="192.168.2.1"
+        SSID_PREFIX="ImmortalWrt"
+        ;;
+esac
+
+# 1. Set Hostname & Asia/Shanghai Timezone
+uci -q set system.@system[0].hostname="$HOSTNAME"
+uci -q set system.@system[0].zonename='Asia/Shanghai'
+uci -q set system.@system[0].timezone='CST-8'
+uci commit system
+
+# 2. Initialize Standard Router Mode (WAN connected to Optical Modem, independent LAN subnet)
+if [ -x /usr/bin/switch-mode ]; then
+    /usr/bin/switch-mode router "$DEFAULT_IP" --uci-only
+fi
+
+# 3. Initialize MT7981 Wi-Fi (2.4G HE40 + 5G HE160 + 802.11k/v/r Roaming Ready)
+if [ ! -s /etc/config/wireless ]; then
+    /sbin/wifi config
+fi
+uci -q set wireless.MT7981_1_1.country='CN'
+uci -q set wireless.MT7981_1_1.htmode='HE40'
+uci -q set wireless.MT7981_1_1.txpower='100'
+uci -q set wireless.MT7981_1_1.mu_beamformer='1'
+uci -q set wireless.MT7981_1_1.disabled='0'
+
+uci -q set wireless.MT7981_1_2.country='CN'
+uci -q set wireless.MT7981_1_2.channel='36'
+uci -q set wireless.MT7981_1_2.htmode='HE160'
+uci -q set wireless.MT7981_1_2.txpower='100'
+uci -q set wireless.MT7981_1_2.mu_beamformer='1'
+uci -q set wireless.MT7981_1_2.disabled='0'
+
+uci -q set wireless.default_MT7981_1_1.ssid="${SSID_PREFIX}_2.4G"
+uci -q set wireless.default_MT7981_1_1.ieee80211k='1'
+uci -q set wireless.default_MT7981_1_1.bss_transition='1'
+uci -q set wireless.default_MT7981_1_1.disabled='0'
+
+uci -q set wireless.default_MT7981_1_2.ssid="${SSID_PREFIX}_5G"
+uci -q set wireless.default_MT7981_1_2.ieee80211k='1'
+uci -q set wireless.default_MT7981_1_2.bss_transition='1'
+uci -q set wireless.default_MT7981_1_2.disabled='0'
+uci commit wireless
+
+# 4. Ensure Dropbear SSH listens on all interfaces (including ZeroTier/Tailscale)
+uci -q delete dropbear.@dropbear[0].Interface
+uci -q delete dropbear.@dropbear[0].DirectInterface
+uci commit dropbear
+
+# 5. Enable MediaTek HNAT Hardware Offloading (5 pps fast bind + conntrack sync + FullCone + BBR)
+uci -q set turboacc.config.fastpath='mediatek_hnat'
+uci -q set turboacc.config.fastpath_mh_bind_rate='5'
+uci -q set turboacc.config.fastpath_mh_update_nfct='1'
+uci -q set turboacc.config.fullcone='1'
+uci -q set turboacc.config.tcpcca='bbr'
+uci commit turboacc
+
+# 6. Board-Specific Front Panel LED Bindings (ASR3000 2.4G / 5G Wi-Fi LEDs)
+if [ "$BOARD" = "abt,asr3000" ]; then
+    uci set system.led_wlan2g=led
+    uci set system.led_wlan2g.name='wlan2g'
+    uci set system.led_wlan2g.sysfs='green:wlan2g'
+    uci set system.led_wlan2g.trigger='netdev'
+    uci set system.led_wlan2g.dev='ra0'
+    uci set system.led_wlan2g.mode='link tx rx'
+
+    uci set system.led_wlan5g=led
+    uci set system.led_wlan5g.name='wlan5g'
+    uci set system.led_wlan5g.sysfs='green:wlan5g'
+    uci set system.led_wlan5g.trigger='netdev'
+    uci set system.led_wlan5g.dev='rax0'
+    uci set system.led_wlan5g.mode='link tx rx'
+    uci commit system
+fi
+
+exit 0

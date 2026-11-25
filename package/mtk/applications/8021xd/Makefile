@@ -25,7 +25,7 @@ define Package/8021xd/description
   802.1X Daemon
 endef
 
-TARGET_CFLAGS += -DCONFIG_SUPPORT_OPENWRT
+TARGET_CFLAGS += -DCONFIG_SUPPORT_OPENWRT -fcommon -Wno-error=implicit-function-declaration -Wno-error=int-conversion -Wno-error=incompatible-pointer-types -Wno-error=return-mismatch -fpermissive
 MAKE_FLAGS += CONFIG_SUPPORT_OPENWRT=y
 MAKE_FLAGS += \
 	CFLAGS="$(TARGET_CFLAGS)"

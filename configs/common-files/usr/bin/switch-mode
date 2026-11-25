@@ -1,0 +1,276 @@
+#!/bin/sh
+# ==============================================================================
+# switch-mode: One-Click Network Mode & Mesh Roaming Switcher for MT7981 Routers
+# Supports: ABT ASR3000 (abt,asr3000) & Qihoo 360T7 (qihoo,360t7)
+# ==============================================================================
+
+BOARD="$(cat /tmp/sysinfo/board_name 2>/dev/null || echo 'unknown')"
+case "$BOARD" in
+    abt,asr3000)
+        MODEL_NAME="ABT ASR3000"
+        WAN_DEV="eth1"
+        DEFAULT_ROUTER_IP="192.168.2.1"
+        ;;
+    qihoo,360t7*)
+        MODEL_NAME="Qihoo 360T7"
+        WAN_DEV="wan"
+        DEFAULT_ROUTER_IP="192.168.6.1"
+        ;;
+    *)
+        MODEL_NAME="MT7981 Router ($BOARD)"
+        if [ -d /sys/class/net/wan ]; then
+            WAN_DEV="wan"
+        else
+            WAN_DEV="eth1"
+        fi
+        DEFAULT_ROUTER_IP="192.168.2.1"
+        ;;
+esac
+
+usage() {
+    cat <<EOF
+================================================================================
+  $MODEL_NAME 模式切换与组网工具 (switch-mode)
+================================================================================
+用法:
+  switch-mode status
+      查看当前运行模式（主路由 / 旁路AP）、网口绑定、IPv4/IPv6、HNAT 与 ZeroTier 状态
+
+  switch-mode router [内网IP]
+      切换为【标准主路由模式】（WAN口 [$WAN_DEV] 接光猫自动获取 IPv4/IPv6，
+      LAN1~LAN3 + Wi-Fi 自建独立内网网段，开启 DHCP 服务与 MT7981 硬件 HNAT 加速）
+      默认内网 IP: $DEFAULT_ROUTER_IP
+
+  switch-mode ap [本机IP] [主路由/光猫网关IP]
+      切换为【二层桥接 AP / 有线 Mesh 子节点 / 旁路由模式】（全网口 LAN1~3 + $WAN_DEV
+      四口盲插桥接进 br-lan，关闭本机 DHCP/RA，由上级主路由或光猫统一分配 IP 与 IPv6）
+      示例: switch-mode ap 192.168.10.2 192.168.10.1
+
+  switch-mode mesh-roaming <2.4G_SSID> <5G_SSID> <Wi-Fi密码> [漫游域ID:默认a1b2]
+      一键配置同地双机 802.11k/v/r 无缝漫游参数（两台路由器执行相同命令即可无缝漫游）
+================================================================================
+EOF
+}
+
+show_status() {
+    local br_ports="$(uci -q get network.@device[0].ports)"
+    local lan_ip="$(uci -q get network.lan.ipaddr)"
+    local lan_gw="$(uci -q get network.lan.gateway)"
+    local dhcp_ignore="$(uci -q get dhcp.lan.ignore)"
+    local mode_str="标准主路由模式 (Router Mode — WAN口 [$WAN_DEV] 独立接光猫)"
+    if echo "$br_ports" | grep -qw "$WAN_DEV" || [ "$dhcp_ignore" = "1" ]; then
+        mode_str="二层桥接 AP / Mesh子节点 / 旁路由模式 (AP Bridge Mode — 四口全盲插)"
+    fi
+
+    echo "================================================================"
+    echo " 设备型号   : $MODEL_NAME ($BOARD)"
+    echo " 当前模式   : $mode_str"
+    echo " br-lan网口 : $br_ports"
+    echo " 硬件WAN口  : $WAN_DEV"
+    echo " 内网 IPv4  : $lan_ip ${lan_gw:+(网关: $lan_gw)}"
+    echo " 内网 IPv6  : $(ip -6 addr show dev br-lan scope global 2>/dev/null | awk '/inet6/{print $2}' | tr '\n' ' ')"
+    echo " DHCP服务端 : $([ "$dhcp_ignore" = "1" ] && echo "已关闭 (由上级路由/光猫分配)" || echo "已开启 (本机分配内网IP)")"
+    echo " 硬件 HNAT  : $( [ -d /sys/kernel/debug/hnat ] && echo "已加载 (mtkhnat)" || echo "未加载" )"
+    echo " ZeroTier   : $(zerotier-cli info 2>/dev/null || echo "未运行")"
+    echo "================================================================"
+}
+
+set_router_mode() {
+    local target_ip="${1:-$DEFAULT_ROUTER_IP}"
+    local uci_only="$2"
+
+    # 1. Configure br-lan with LAN ports only (separate WAN_DEV)
+    uci -q delete network.@device[0].ports
+    uci add_list network.@device[0].ports='lan1'
+    uci add_list network.@device[0].ports='lan2'
+    uci add_list network.@device[0].ports='lan3'
+
+    # 2. Configure LAN interface
+    uci set network.lan=interface
+    uci set network.lan.device='br-lan'
+    uci set network.lan.proto='static'
+    uci set network.lan.ipaddr="$target_ip"
+    uci set network.lan.netmask='255.255.255.0'
+    uci -q delete network.lan.gateway
+    uci -q delete network.lan.dns
+    uci -q delete network.lan.delegate
+    uci set network.lan.ip6assign='64'
+
+    # 3. Configure WAN & WAN6 on physical WAN_DEV
+    uci set network.wan=interface
+    uci set network.wan.device="$WAN_DEV"
+    uci set network.wan.proto='dhcp'
+    uci -q delete network.wan.auto
+
+    uci set network.wan6=interface
+    uci set network.wan6.device="$WAN_DEV"
+    uci set network.wan6.proto='dhcpv6'
+    uci set network.wan6.reqaddress='try'
+    uci set network.wan6.reqprefix='auto'
+    uci -q delete network.wan6.sourcefilter
+    uci -q delete network.wan6.fakeroutes
+    uci -q delete network.wan6.delegate
+    uci -q delete network.wan6.auto
+
+    uci commit network
+
+    # 4. Configure DHCPv4 Server + IPv6 Hybrid RA/DHCPv6/NDP (supports both PD and single /64 relay)
+    uci -q delete dhcp.lan.ignore
+    uci -q delete dhcp.lan.dhcpv4
+    uci set dhcp.lan.interface='lan'
+    uci set dhcp.lan.start='100'
+    uci set dhcp.lan.limit='150'
+    uci set dhcp.lan.leasetime='12h'
+    uci set dhcp.lan.ra='hybrid'
+    uci set dhcp.lan.dhcpv6='hybrid'
+    uci set dhcp.lan.ndp='hybrid'
+    uci set dhcp.lan.ra_management='1'
+    uci set dhcp.lan.ra_default='1'
+
+    uci set dhcp.wan6=dhcp
+    uci set dhcp.wan6.interface='wan6'
+    uci set dhcp.wan6.ignore='1'
+    uci set dhcp.wan6.master='1'
+    uci set dhcp.wan6.ra='hybrid'
+    uci set dhcp.wan6.dhcpv6='hybrid'
+    uci set dhcp.wan6.ndp='hybrid'
+    uci commit dhcp
+
+    # 5. Configure Firewall Zones (lan -> lan; wan + wan6 -> wan)
+    uci -q del_list firewall.@zone[0].network='wan6'
+    uci -q del_list firewall.@zone[0].network='lan'
+    uci add_list firewall.@zone[0].network='lan'
+
+    uci -q del_list firewall.@zone[1].network='wan'
+    uci -q del_list firewall.@zone[1].network='wan6'
+    uci add_list firewall.@zone[1].network='wan'
+    uci add_list firewall.@zone[1].network='wan6'
+    uci commit firewall
+
+    if [ "$uci_only" != "--uci-only" ]; then
+        echo "✅ 已切换为【标准主路由模式】:"
+        echo "   - WAN口 ($WAN_DEV) : 自动从光猫获取 IPv4/IPv6"
+        echo "   - LAN口 (lan1~3) : $target_ip/24 (已开启 DHCPv4 与 IPv6 混合分配/中继)"
+        /etc/init.d/network reload
+        /etc/init.d/firewall reload
+        /etc/init.d/dnsmasq restart
+        /etc/init.d/odhcpd restart
+    fi
+}
+
+set_ap_mode() {
+    local ap_ip="${1:-192.168.10.2}"
+    local gw_ip="${2:-192.168.10.1}"
+    local uci_only="$3"
+
+    # 1. Bridge all 4 ports (lan1, lan2, lan3, WAN_DEV) into br-lan
+    uci -q delete network.@device[0].ports
+    uci add_list network.@device[0].ports='lan1'
+    uci add_list network.@device[0].ports='lan2'
+    uci add_list network.@device[0].ports='lan3'
+    uci add_list network.@device[0].ports="$WAN_DEV"
+
+    # 2. Configure LAN static IP & gateway
+    uci set network.lan=interface
+    uci set network.lan.device='br-lan'
+    uci set network.lan.proto='static'
+    uci set network.lan.ipaddr="$ap_ip"
+    uci set network.lan.netmask='255.255.255.0'
+    uci set network.lan.gateway="$gw_ip"
+    uci -q delete network.lan.dns
+    uci add_list network.lan.dns="$gw_ip"
+    uci add_list network.lan.dns='223.5.5.5'
+    uci add_list network.lan.dns='119.29.29.29'
+    uci -q delete network.lan.ip6assign
+    uci set network.lan.delegate='0'
+
+    # 3. Disable standalone WAN, bind wan6 to @lan as pure client
+    uci set network.wan.auto='0'
+    uci set network.wan6=interface
+    uci set network.wan6.device='@lan'
+    uci set network.wan6.proto='dhcpv6'
+    uci set network.wan6.reqaddress='try'
+    uci set network.wan6.reqprefix='no'
+    uci set network.wan6.sourcefilter='0'
+    uci set network.wan6.fakeroutes='0'
+    uci set network.wan6.delegate='0'
+    uci commit network
+
+    # 4. Disable LAN DHCPv4 & IPv6 RA/Relay (handled by main router/optical modem at Layer 2)
+    uci set dhcp.lan.ignore='1'
+    uci set dhcp.lan.dhcpv4='disabled'
+    uci set dhcp.lan.dhcpv6='disabled'
+    uci set dhcp.lan.ra='disabled'
+    uci -q delete dhcp.lan.ndp
+
+    uci set dhcp.wan6.ignore='1'
+    uci set dhcp.wan6.ra='disabled'
+    uci set dhcp.wan6.dhcpv6='disabled'
+    uci set dhcp.wan6.ndp='disabled'
+    uci -q delete dhcp.wan6.master
+    uci commit dhcp
+
+    # 5. Move wan6 into lan firewall zone so br-lan is never NATed
+    uci -q del_list firewall.@zone[1].network='wan6'
+    uci -q del_list firewall.@zone[0].network='wan6'
+    uci add_list firewall.@zone[0].network='wan6'
+    uci commit firewall
+
+    if [ "$uci_only" != "--uci-only" ]; then
+        echo "✅ 已切换为【二层桥接 AP / 有线 Mesh 子节点 / 旁路由模式】:"
+        echo "   - 四口盲插桥接 : lan1 lan2 lan3 $WAN_DEV -> br-lan"
+        echo "   - 本机管理 IP  : $ap_ip (上级网关/光猫: $gw_ip)"
+        echo "   - DHCP / IPv6  : 由上级主路由/光猫二层直通分配"
+        /etc/init.d/network reload
+        /etc/init.d/firewall reload
+        /etc/init.d/dnsmasq restart
+        /etc/init.d/odhcpd restart
+    fi
+}
+
+set_mesh_roaming() {
+    local ssid2g="$1"
+    local ssid5g="$2"
+    local key="$3"
+    local md="${4:-a1b2}"
+
+    if [ -z "$ssid2g" ] || [ -z "$ssid5g" ] || [ -z "$key" ]; then
+        echo "用法: switch-mode mesh-roaming <2.4G_SSID> <5G_SSID> <Wi-Fi密码> [漫游域ID:默认a1b2]"
+        exit 1
+    fi
+
+    for iface in default_MT7981_1_1 default_MT7981_1_2; do
+        uci set wireless.$iface.encryption='psk-mixed+ccmp'
+        uci set wireless.$iface.key="$key"
+        uci set wireless.$iface.ieee80211k='1'
+        uci set wireless.$iface.bss_transition='1'
+        uci set wireless.$iface.ieee80211r='1'
+        uci set wireless.$iface.mobility_domain="$md"
+        uci set wireless.$iface.ft_over_ds='1'
+        uci set wireless.$iface.ft_psk_generate_local='1'
+        uci set wireless.$iface.disabled='0'
+    done
+    uci set wireless.default_MT7981_1_1.ssid="$ssid2g"
+    uci set wireless.default_MT7981_1_2.ssid="$ssid5g"
+    uci commit wireless
+    /sbin/wifi reload
+    echo "✅ 已启用 802.11k/v/r 无缝漫游 (2.4G: $ssid2g | 5G: $ssid5g | 漫游域: $md)"
+}
+
+case "$1" in
+    status)
+        show_status
+        ;;
+    router)
+        set_router_mode "$2" "$3"
+        ;;
+    ap)
+        set_ap_mode "$2" "$3" "$4"
+        ;;
+    mesh-roaming)
+        set_mesh_roaming "$2" "$3" "$4" "$5"
+        ;;
+    *)
+        usage
+        ;;
+esac

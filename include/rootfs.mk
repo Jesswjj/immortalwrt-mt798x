@@ -78,12 +78,13 @@ define prepare_rootfs
 		cd $(1); \
 		if [ -n "$(CONFIG_USE_APK)" ]; then \
 			IPKG_POSTINST_PATH=./lib/apk/db/*.post-install; \
-			$(STAGING_DIR_HOST)/bin/gzip -d ./lib/apk/db/scripts.tar; \
-			$(STAGING_DIR_HOST)/bin/tar -C ./lib/apk/db/ -xf ./lib/apk/db/scripts.tar --wildcards "*.post-install"; \
+			[ -f ./lib/apk/db/scripts.tar.gz ] && $(STAGING_DIR_HOST)/bin/gzip -d ./lib/apk/db/scripts.tar || true; \
+			$(STAGING_DIR_HOST)/bin/tar -C ./lib/apk/db/ -xf ./lib/apk/db/scripts.tar --wildcards "*.post-install" 2>/dev/null || true; \
 		else \
 			IPKG_POSTINST_PATH=./usr/lib/opkg/info/*.postinst; \
 		fi; \
 		for script in $$IPKG_POSTINST_PATH; do \
+			[ -f "$$script" ] || continue; \
 			IPKG_INSTROOT=$(1) $$(command -v bash) $$script; \
 			ret=$$?; \
 			if [ $$ret -ne 0 ]; then \

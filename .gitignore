@@ -35,3 +35,6 @@ git-src
 .cproject
 .ccache
 .vscode*
+/files/
+/files-private/
+/scripts/localmirrors

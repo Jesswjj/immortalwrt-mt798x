@@ -3,4 +3,7 @@
 # Run HNAT detection after firewall reloads.
 uci set firewall.hnat_detect=include || exit 1
 uci set firewall.hnat_detect.type=script || exit 1
-uci set firewall.hnat_detect.path='/usr/share/hnat-detect/firewall.sh'
+uci set firewall.hnat_detect.path='/usr/share/hnat-detect/firewall.sh' || exit 1
+uci commit firewall || exit 1
+
+exit 0
