@@ -13,7 +13,7 @@ set -e
 TOPDIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$TOPDIR"
 
-TARGET_DEVICE="${1:-all}"
+TARGET_DEVICE="${1:-360t7}"
 PRIV_MODE="${2:---private}"
 
 # Locate private overlay directory (git-ignored) if available
