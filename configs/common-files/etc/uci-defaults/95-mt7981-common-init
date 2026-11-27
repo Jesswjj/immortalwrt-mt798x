@@ -94,4 +94,9 @@ if [ "$BOARD" = "abt,asr3000" ]; then
     uci commit system
 fi
 
+# Enable boot & daily cron for mobile adblock (AWAvenue + anti-AD + HTTP-DNS block)
+grep -q "update-adblock" /etc/rc.local 2>/dev/null || sed -i "/exit 0/i /usr/bin/update-adblock --boot-only &" /etc/rc.local
+grep -q "update-adblock" /etc/crontabs/root 2>/dev/null || echo "30 4 * * * /usr/bin/update-adblock >/dev/null 2>&1" >> /etc/crontabs/root
+chmod +x /usr/bin/update-adblock 2>/dev/null || true
+
 exit 0

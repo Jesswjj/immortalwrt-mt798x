@@ -1,0 +1,33 @@
+#!/bin/sh
+# Dual-Layer Mobile Adblock Updater & Boot Loader (AWAvenue + anti-AD + Mobile HTTP-DNS)
+mkdir -p /etc/dnsmasq.d /etc/openclash/rule_provider
+
+DNSMASQ_TMP_DIR=$(ls -d /tmp/dnsmasq*.d 2>/dev/null | head -n 1)
+[ -z "$DNSMASQ_TMP_DIR" ] && DNSMASQ_TMP_DIR="/tmp/dnsmasq.cfg01411c.d"
+mkdir -p "$DNSMASQ_TMP_DIR"
+
+if [ "$1" != "--boot-only" ]; then
+    curl -fsSL --connect-timeout 10 -o /etc/dnsmasq.d/awavenue-adblock.conf.tmp \
+      "https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-Dnsmasq.conf" || \
+    curl -fsSL --connect-timeout 10 -o /etc/dnsmasq.d/awavenue-adblock.conf.tmp \
+      "https://testingcf.jsdelivr.net/gh/TG-Twilight/AWAvenue-Ads-Rule@main/Filters/AWAvenue-Ads-Rule-Dnsmasq.conf"
+    [ -s /etc/dnsmasq.d/awavenue-adblock.conf.tmp ] && mv /etc/dnsmasq.d/awavenue-adblock.conf.tmp /etc/dnsmasq.d/awavenue-adblock.conf
+
+    curl -fsSL --connect-timeout 10 -o /etc/dnsmasq.d/anti-ad-for-dnsmasq.conf.tmp \
+      "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/adblock-for-dnsmasq.conf" || \
+    curl -fsSL --connect-timeout 10 -o /etc/dnsmasq.d/anti-ad-for-dnsmasq.conf.tmp \
+      "https://anti-ad.net/anti-ad-for-dnsmasq.conf"
+    [ -s /etc/dnsmasq.d/anti-ad-for-dnsmasq.conf.tmp ] && mv /etc/dnsmasq.d/anti-ad-for-dnsmasq.conf.tmp /etc/dnsmasq.d/anti-ad-for-dnsmasq.conf
+
+    curl -fsSL --connect-timeout 10 -o /etc/openclash/rule_provider/AWAvenue-Ads-Rule-Clash.mrs.tmp \
+      "https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-Clash.mrs" || \
+    curl -fsSL --connect-timeout 10 -o /etc/openclash/rule_provider/AWAvenue-Ads-Rule-Clash.mrs.tmp \
+      "https://testingcf.jsdelivr.net/gh/TG-Twilight/AWAvenue-Ads-Rule@main/Filters/AWAvenue-Ads-Rule-Clash.mrs"
+    [ -s /etc/openclash/rule_provider/AWAvenue-Ads-Rule-Clash.mrs.tmp ] && mv /etc/openclash/rule_provider/AWAvenue-Ads-Rule-Clash.mrs.tmp /etc/openclash/rule_provider/AWAvenue-Ads-Rule-Clash.mrs
+fi
+
+cat /etc/dnsmasq.d/awavenue-adblock.conf /etc/dnsmasq.d/mobile-httpdns-block.conf /etc/dnsmasq.d/anti-ad-for-dnsmasq.conf 2>/dev/null > "$DNSMASQ_TMP_DIR/99-adblock.conf"
+/etc/init.d/dnsmasq reload 2>/dev/null || /etc/init.d/dnsmasq restart 2>/dev/null
+sed -e "s|/#$|/::|g" /etc/dnsmasq.d/awavenue-adblock.conf /etc/dnsmasq.d/mobile-httpdns-block.conf >> /usr/bin/update-adblock
+sed -e "s|/#$|/|g" /etc/dnsmasq.d/awavenue-adblock.conf /etc/dnsmasq.d/mobile-httpdns-block.conf > /tmp/modem_adblock.conf
+ln -sf /tmp/modem_adblock.conf /www/adblock.conf
