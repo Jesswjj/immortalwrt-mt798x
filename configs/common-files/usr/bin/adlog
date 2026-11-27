@@ -1,0 +1,11 @@
+#!/bin/sh
+if [ "$1" = "-f" ]; then
+    echo "=== 实时监听广告拦截日志 (按 Ctrl+C 退出) ==="
+    logread -f | grep --line-buffered "dnsmasq\[" | grep --line-buffered " config "
+else
+    echo "=== 最近拦截的 40 条广告请求 ==="
+    logread | grep "dnsmasq\[" | grep " config " | tail -n 40
+    echo ""
+    echo "=== 拦截排行榜 Top 15 广告域名 (当前日志缓冲区) ==="
+    logread | grep "dnsmasq\[" | grep " config " | awk "{for(i=1;i<=NF;i++) if(\$i==\"config\") print \$(i+1)}" | sort | uniq -c | sort -nr | head -n 15
+fi

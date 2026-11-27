@@ -95,8 +95,20 @@ if [ "$BOARD" = "abt,asr3000" ]; then
 fi
 
 # Enable boot & daily cron for mobile adblock (AWAvenue + anti-AD + HTTP-DNS block)
+uci set dhcp.@dnsmasq[0].logqueries="1"
+uci commit dhcp
+chmod +x /usr/bin/adlog 2>/dev/null || true
+
 grep -q "update-adblock" /etc/rc.local 2>/dev/null || sed -i "/exit 0/i /usr/bin/update-adblock --boot-only &" /etc/rc.local
+uci set dhcp.@dnsmasq[0].logqueries="1"
+uci commit dhcp
+chmod +x /usr/bin/adlog 2>/dev/null || true
+
 grep -q "update-adblock" /etc/crontabs/root 2>/dev/null || echo "30 4 * * * /usr/bin/update-adblock >/dev/null 2>&1" >> /etc/crontabs/root
+uci set dhcp.@dnsmasq[0].logqueries="1"
+uci commit dhcp
+chmod +x /usr/bin/adlog 2>/dev/null || true
+
 chmod +x /usr/bin/update-adblock 2>/dev/null || true
 
 exit 0
